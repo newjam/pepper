@@ -1,6 +1,11 @@
 
 a:link {
   color:inherit;
+}
+
+
+a.player:link {
+  color:inherit;
   text-decoration:none;
 }
 a:visited {
@@ -39,3 +44,8 @@ thead td {
 td.winner {
  font-weight:bold;
 }
+
+.incorrect {
+  color: red;
+}
+

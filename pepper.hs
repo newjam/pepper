@@ -11,9 +11,6 @@ import qualified Text.Blaze.Html5 as H --hiding (html, param)
 import qualified Text.Blaze.Html5.Attributes as A
 import           Text.Blaze.Internal (textValue)
 
---import qualified Text.Pandoc.Readers.Mardown as Pandoc
---import qualified Text.Pandoc.Writers.HTML as Pandoc
-
 import qualified Text.Markdown as MD
 
 import Text.Blaze.Html.Renderer.Text
@@ -31,7 +28,6 @@ import Data.Attoparsec.ByteString.Char8
 
 import Control.Monad
 
---import qualified Data.Aeson as JSON
 import Data.Aeson as JSON hiding (json)
 import Control.Applicative
 
@@ -49,21 +45,20 @@ instance Semigroup T.Text where
   (<>) = mappend
 
 -- Todo
---   * pagination of lists, ie history and scoreboard
---   * character profile displaying recent games and detailed statistics.
---   *
+--   * pagination/search of lists, ie history and scoreboard
+--   * modularize the code so we don't have one big file
 
-main = scotty 8001 routes
+main = do
+  -- Thread safe connection pool
+  conn <- R.connect R.defaultConnectInfo
+  -- start scotty server
+  scotty 8001 (routes conn)
 
-fuck r = r >>= either
-  (\(R.Error x) -> error . show $ x)
-  return
-
-fucking r = r >>= maybe
-  (error "you thought you didn't fuck up but you did.")
-  return
+-- Types
+-- =====
 
 data PlayerRank = PlayerRank Player Integer Rating
+
 data RankBoard = RankBoard Integer [PlayerRank]
 
 newtype Rating = Rating Double
@@ -75,14 +70,14 @@ newtype Odds = Odds Double
 data MatchOutcome = MatchOutcome Player Player Bool Odds
   deriving Show
 
+data CurrentMatch = CurrentMatch Player Player Odds
+  deriving Show
+
 data MatchList = MatchList [MatchOutcome]
   deriving Show
 
-data Player = Player {playerName::T.Text}
+data Player = Player T.Text
   deriving Show
-
-instance ToMarkup Player where
-  toMarkup (Player name) = H.a ! A.href (textValue $ "/player/"<>name) $ H.toHtml name
 
 instance FromJSON Player where
   parseJSON (String name) = return . Player $ name
@@ -96,16 +91,15 @@ instance FromJSON MatchOutcome where
                          v .: "p2" <*>
                          v .: "p1Won" <*>
                          v .: "odds"
-{-
-instance ToJSON MatchOutcome where
-  toJSON (MatchOutcome (Player p1) (Player p2) p1Won odds) =
-      object ["p1" .= p1, "p2" .= p2, "p1Won" .= p1Won, "odds" .= odds]
--}
 
---bleh (name, score) = PlayerRank name score
+sigfig :: Double -> Double
+sigfig x = fromIntegral (round (x * 100.0)) / 100.0
 
-boo :: Double -> Double
-boo x = fromIntegral (round (x * 100.0)) / 100.0
+instance ToMarkup Player where
+  toMarkup (Player name) = H.a
+    ! A.class_ "player"
+    ! A.href (textValue $ "/player/"<>name)
+    $ H.toHtml name
 
 instance ToMarkup PlayerRank where
   toMarkup (PlayerRank name rank score) = do
@@ -127,18 +121,18 @@ instance ToMarkup MatchList where
   toMarkup (MatchList ms) = H.table $ do
     H.thead $ do
       H.tr $ do
-        H.td $ do "Player 1"
-        H.td $ do "Player 2"
+        H.td ! A.class_ "p1" $ do "Player 1"
+        H.td ! A.class_ "p2" $ do "Player 2"
         H.td $ do "Odds"
     forM_ ms H.toHtml
 
 instance ToMarkup Rating where
   toMarkup (Rating r) = do
-    H.toHtml $ boo $ r
+    H.toHtml $ sigfig r
 
 instance ToMarkup Odds where
   toMarkup (Odds o) = do
-    H.toHtml . boo . (*100.0) $ o
+    H.toHtml . sigfig . (*100.0) $ o
     "%"
 
 instance ToMarkup MatchOutcome where
@@ -149,7 +143,32 @@ instance ToMarkup MatchOutcome where
           else ("loser", "winner")
       H.td ! A.class_ p1Class $ H.toHtml p1
       H.td ! A.class_ p2Class $ H.toHtml p2
-      H.td $ H.toHtml odds
+      let oddsClass = if odds >= 0.5
+          then "correct"
+          else "incorrect"
+      H.td ! A.class_ oddsClass $ H.toHtml odds
+
+instance ToMarkup CurrentMatch where
+  toMarkup (CurrentMatch p1 p2 odds) = do 
+    H.div $ do
+      H.span ! A.class_ "p1" $ H.toHtml p1
+      " vs. "
+      H.span ! A.class_ "p2" $ H.toHtml p2
+    H.div $ do
+      H.toHtml odds
+      " and "
+      H.toHtml (1.0 - odds)
+ 
+-- Redis
+-- =====
+
+fuck r = r >>= either
+  (\(R.Error x) -> error . show $ x)
+  return
+
+fucking r = r >>= maybe
+  (error "you thought you didn't fuck up but you did.")
+  return
 
 getRanks index count = do
   R.select 1
@@ -170,47 +189,51 @@ getMatches key start count = do
   bs <- fuck $ R.lrange key start (start + count - 1)
   return . MatchList . mapMaybe (JSON.decode . BL.fromChunks . return) $ bs
 
-getCurrent :: R.Redis (Odds, T.Text, T.Text) --C.ByteString, C.ByteString)
-getCurrent = do
-  R.select 1
-  x <- fucking . fuck $ R.get "p1"
-  y <- fucking . fuck $ R.get "p2"
-  odds <- fucking . fuck $ R.get "odds"
-  let parseDouble = either (error) id . parseOnly double
-  return (Odds . parseDouble $ odds, TE.decodeUtf8 x, TE.decodeUtf8 y)
+getCurrent :: R.Redis CurrentMatch
+getCurrent = CurrentMatch <$> p1 <*> p2 <*> odds where
+  p1 = mkPlayer <$> get "p1"
+  p2 = mkPlayer <$> get "p2"
+  odds = Odds . parseDouble <$> get "odds"
+  parseDouble = either (error) id . parseOnly double
+  get key = fucking . fuck $ R.get key
+  mkPlayer = Player . TE.decodeUtf8
 
-getPlayerRank :: Player -> R.Redis PlayerRank
-getPlayerRank (Player name) = PlayerRank (Player name) <$> rank <*> rating where
+
+getRank :: Player -> R.Redis PlayerRank
+getRank (Player name) = PlayerRank (Player name) <$> rank <*> rating where
   key = TE.encodeUtf8 name
   rank = fucking . fuck $ R.zrank "players" key
   rating = Rating <$> (fucking . fuck $ R.zscore "players" key)
 
-routes = do
-  -- Thread safe connection pool
-  conn <- liftIO $ R.connect R.defaultConnectInfo
+
+-- controller
+
+routes conn = do
  
   get "/about" $ do
     about <- liftIO $ LT.readFile "about"
     html. renderHtml . page $ do
-      --H.h2 $ do "About"
-      MD.markdown MD.def about -- "Header\n======\n\nI love cock!"  -- about
+      MD.markdown MD.def about
 
   get "/style.css" $ do
     header "content-type" "text/css"
     file "style.css"
+
   get "/scoreboard" $ do
     rankings <- liftIO . R.runRedis conn $ getRanks 0 30
-    (odds, p1, p2) <- liftIO . R.runRedis conn $ getCurrent
+    current <- liftIO . R.runRedis conn $ do
+      R.select 1
+      getCurrent
     html . renderHtml . page $ do
       H.h2 $ do "Current Match"
-      currentMatch (Player p1) (Player p2) odds
+      H.toHtml current
       H.h2 $ do "Rankings" 
       H.toHtml rankings
   get "/ranks" $ redirect "/history" 
   get "/player/:player" $ \playerNameBS -> do
     let player = Player . TE.decodeUtf8 $ playerNameBS
     matches <- liftIO . R.runRedis conn $ getPlayerMatches playerNameBS
-    PlayerRank _ _ rating <- liftIO . R.runRedis conn $ getPlayerRank player
+    PlayerRank _ _ rating <- liftIO . R.runRedis conn $ getRank player
     
     html . renderHtml . page $ do
       H.h2 $ H.toHtml player `mappend` "'s Matches"
@@ -221,17 +244,16 @@ routes = do
         H.toHtml rating
       toMarkup matches
   get "/history" $ do
-    rankings <- liftIO . R.runRedis conn $ getRanks 0 30
-    (odds, p1, p2) <- liftIO . R.runRedis conn $ getCurrent
+    current <- liftIO . R.runRedis conn $ do
+      R.select 1
+      getCurrent
     recent <- liftIO . R.runRedis conn $ getRecent
 
     html . renderHtml $ page $ do
       H.h2 $ do "Current Match"
-      currentMatch (Player p1) (Player p2) odds  
+      H.toHtml current
       H.h2 $ do "History"
       H.div $ H.toHtml recent
---        H.h2 $ do "Rankings"
---        H.div $ toMarkup rankings
 
 page content = do
   H.html $ do
@@ -243,18 +265,7 @@ page content = do
         H.a ! A.href "/scoreboard" $ "scoreboard"
         " | "
         H.a ! A.href "/history" $ "history"
+        " | "
+        H.a ! A.href "/about" $ "about"
       content
-
-
-currentMatch p1 p2 odds = do
-  H.div $ do 
-    H.span ! A.class_ "p1" $ H.toHtml p1
-    " vs. "
-    H.span ! A.class_ "p2" $ H.toHtml p2
-  H.div $ do
-    H.toHtml odds
-    " and "
-    H.toHtml (1.0 - odds)
-    
-
 
