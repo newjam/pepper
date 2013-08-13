@@ -1,0 +1,12 @@
+About
+-----
+
+[saltybet.com](http://saltybet.com/) runs matches between fighting game AI's and allows users to place bets on the outcome. This site collects up the results of the matches and constructs a database of the matches outcomes and a ranking of the player.
+
+
+Rating System
+-------------
+
+Ratings are determined using a version of the Elo ranking system.
+
+

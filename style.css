@@ -1,0 +1,41 @@
+
+a:link {
+  color:inherit;
+  text-decoration:none;
+}
+a:visited {
+  color:inherit;
+  text-decoration:none;
+}
+a:hover {
+  color:inherit;
+}
+a:active {
+  color:inherit;
+}
+
+body {
+  font-family:Arial, Helvetica, sans-serif;
+  color: #000000;
+}
+table {
+border-spacing: 0px;
+}
+tr:nth-child(even) {
+  background: #EEE;
+}
+td {
+  padding: 4px;
+}
+.p1 {
+ color: #D14836;
+}
+.p2 {
+ color: #349EFF;
+}
+thead td {
+  border-bottom: 2px solid #000; 
+}
+td.winner {
+ font-weight:bold;
+}
