@@ -23,6 +23,6 @@ Technical Details
 -----------------
 
 A python script grabs the [betting data](http://saltybet.com/betdata.json) and stores it in a [redis](http://redis.io/) database.
-The frontend server is written in Haskell using the [scotty] web framework.
+The frontend server is written in Haskell using the [scotty](https://github.com/xich/scotty) web framework.
 It reads data from the redis database and presents it.
-
+You can find the code on [github](https://github.com/smadge/pepper).
