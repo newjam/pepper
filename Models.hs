@@ -1,12 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Models (
-    getRanks
+    getPlayer
   , getRecent
-  , getPlayerMatches
   , getMatches
   , getCurrent
-  , getRank
+  , getRatings
 ) where
 
 import Types
@@ -33,11 +32,11 @@ fucking r = r >>= maybe
   (error "you thought you didn't fuck up but you did.")
   return
 
-getRanks index count = do
+getRatings index count = do
   R.select 1
   r <- fuck $ R.zrevrangeWithscores "players" index (index + count - 1)
-  let f rank (name, score) = PlayerRank (Player . T.decodeUtf8 $ name) rank (Rating score)
-  return . RankBoard index .  zipWith f [index + 1 ..] $ r   
+  let f rank (name, score) = RatingEntry (Name . T.decodeUtf8 $ name) rank (Rating score)
+  return . RatingTable index .  zipWith f [index + 1 ..] $ r   
 
 getRecent :: R.Redis MatchList -- [MatchOutcome]
 getRecent = getMatches "history" 0 20
@@ -59,11 +58,15 @@ getCurrent = CurrentMatch <$> p1 <*> p2 <*> odds where
   odds = Odds . parseDouble <$> get "odds"
   parseDouble = either (error) id . parseOnly double
   get key = fucking . fuck $ R.get key
-  mkPlayer = Player . T.decodeUtf8
+  mkPlayer = Name . T.decodeUtf8
 
-getRank :: Player -> R.Redis PlayerRank
-getRank (Player name) = PlayerRank (Player name) <$> rank <*> rating where
-  key = T.encodeUtf8 name
-  rank = fucking . fuck $ R.zrank "players" key
-  rating = Rating <$> (fucking . fuck $ R.zscore "players" key)
+getPlayer :: Name -> R.Redis Player
+getPlayer (Name name) = Player (Name name)
+  <$> rank
+  <*> rating
+  <*> matches where
+    key = T.encodeUtf8 name
+    rank = fucking . fuck $ R.zrevrank "players" key
+    rating = Rating <$> (fucking . fuck $ R.zscore "players" key)
+    matches = getPlayerMatches key
 

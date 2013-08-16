@@ -3,13 +3,15 @@
 
 module Types (
     Player(..)
+  , Name(..)
+  , Rank
   , Rating(..)
-  , PlayerRank(..)
-  , RankBoard(..)  
+  , RatingTable(..)  
+  , RatingEntry(..)
   , Odds(..)
+  , MatchList(..)
   , MatchOutcome(..)
   , CurrentMatch(..)
-  , MatchList(..)
 ) where
 
 import           Data.Semigroup
@@ -31,30 +33,39 @@ import           Data.Attoparsec.ByteString.Char8
 instance Semigroup T.Text where
   (<>) = mappend
 
-data Player = Player T.Text
+data Name = Name T.Text
   deriving Show
 
 newtype Rating = Rating Double
   deriving (Show, Num, Real, Ord, Eq, RealFrac, Fractional)
 
-data PlayerRank = PlayerRank Player Integer Rating
+type Rank = Integer
 
-data RankBoard = RankBoard Integer [PlayerRank]
+data Player = Player {
+    playerName    :: Name
+  , playerRank    :: Rank
+  , playerRating  :: Rating
+  , playerHistory :: MatchList
+}
+
+data RatingEntry = RatingEntry Name Rank Rating
+
+data RatingTable = RatingTable Rank [RatingEntry]
 
 newtype Odds = Odds Double
   deriving (Show, Num, Real, Ord, Eq, RealFrac, Fractional)
 
-data MatchOutcome = MatchOutcome Player Player Bool Odds
+data MatchOutcome = MatchOutcome Name Name Bool Odds
   deriving Show
 
-data CurrentMatch = CurrentMatch Player Player Odds
+data CurrentMatch = CurrentMatch Name Name Odds
   deriving Show
 
 data MatchList = MatchList [MatchOutcome]
   deriving Show
 
-instance FromJSON Player where
-  parseJSON (String name) = return . Player $ name
+instance FromJSON Name where
+  parseJSON (String name) = return . Name $ name
 
 instance FromJSON Odds where
   parseJSON (Number (D x)) = return . Odds $ x
@@ -70,35 +81,46 @@ sigfig :: Double -> Double
 sigfig x = fromIntegral (round (x * 100.0)) / 100.0
 
 instance ToMarkup Player where
-  toMarkup (Player name) = H.a
+  toMarkup (Player name rank rating matches) = do 
+    H.h2 $ do
+      H.toHtml name
+      "'s Matches"
+    H.h4 $ do
+      "Elo rating of "
+      H.toHtml rating
+      ""
+    H.toHtml matches
+
+instance ToMarkup Name where
+  toMarkup (Name name) = H.a
     ! A.class_ "player"
     ! A.href (textValue $ "/player/"<>encodeUrl name)
     $ H.toHtml name
 
-instance ToMarkup PlayerRank where
-  toMarkup (PlayerRank name rank score) = do
+instance ToMarkup RatingEntry where
+  toMarkup (RatingEntry name rank score) = do
     H.tr $ do
       H.td $ H.toHtml $ rank
       H.td $ H.toHtml $ name
       H.td $ H.toHtml $ score
 
-instance ToMarkup RankBoard where
-  toMarkup (RankBoard index ranks) = do
+instance ToMarkup RatingTable where
+  toMarkup (RatingTable _ ratings) = do
     H.table ! A.id "rankings" $ do
       H.thead $ H.tr $ do
         H.td $ H.toHtml $ ("rank" :: T.Text)
         H.td $ H.toHtml $ ("name" :: T.Text)
         H.td $ H.toHtml $ ("score" :: T.Text)
-      forM_ ranks toMarkup
+      mapM_ H.toHtml ratings
 
 instance ToMarkup MatchList where
-  toMarkup (MatchList ms) = H.table $ do
+  toMarkup (MatchList matches) = H.table $ do
     H.thead $ do
       H.tr $ do
         H.td ! A.class_ "p1" $ do "Player 1"
         H.td ! A.class_ "p2" $ do "Player 2"
         H.td $ do "Odds"
-    forM_ ms H.toHtml
+    mapM_ H.toHtml matches
 
 instance ToMarkup Rating where
   toMarkup (Rating r) = do
@@ -135,123 +157,3 @@ instance ToMarkup CurrentMatch where
       " and "
       H.toHtml (1.0 - odds)
 
-{-
- 
--- Redis
--- =====
-
-fuck r = r >>= either
-  (\(R.Error x) -> error . show $ x)
-  return
-
-fucking r = r >>= maybe
-  (error "you thought you didn't fuck up but you did.")
-  return
-
-getRanks index count = do
-  R.select 1
-  r <- fuck $ R.zrevrangeWithscores "players" index (index + count - 1)
-  let f rank (name, score) = PlayerRank (Player . T.decodeUtf8 $ name) rank (Rating score)
-  return . RankBoard index .  zipWith f [index + 1 ..] $ r   
-
-getRecent :: R.Redis MatchList -- [MatchOutcome]
-getRecent = getMatches "history" 0 20
-
-getPlayerMatches :: C.ByteString -> R.Redis MatchList
-getPlayerMatches player = getMatches key 0 20 where
-  key = "games["<>player<>"]"
-
-getMatches :: C.ByteString -> Integer -> Integer -> R.Redis MatchList
-getMatches key start count = do
-  R.select 1
-  bs <- fuck $ R.lrange key start (start + count - 1)
-  return . MatchList . mapMaybe (JSON.decode . BL.fromChunks . return) $ bs
-
-getCurrent :: R.Redis CurrentMatch
-getCurrent = CurrentMatch <$> p1 <*> p2 <*> odds where
-  p1 = mkPlayer <$> get "p1"
-  p2 = mkPlayer <$> get "p2"
-  odds = Odds . parseDouble <$> get "odds"
-  parseDouble = either (error) id . parseOnly double
-  get key = fucking . fuck $ R.get key
-  mkPlayer = Player . T.decodeUtf8
-
-
-getRank :: Player -> R.Redis PlayerRank
-getRank (Player name) = PlayerRank (Player name) <$> rank <*> rating where
-  key = T.encodeUtf8 name
-  rank = fucking . fuck $ R.zrank "players" key
-  rating = Rating <$> (fucking . fuck $ R.zscore "players" key)
-
-
--- controller
-
-routes conn = do
- 
-  get "/about" $ do
-    about <- liftIO $ LT.readFile "about"
-    html. renderHtml . page $ do
-      MD.markdown MD.def about
-
-  get "/favicon.png" $ do
-    header "content-type" "image/png"
-    file "favicon.png"
-
-  get "/style.css" $ do
-    header "content-type" "text/css"
-    file "style.css"
-
-  get "/scoreboard" $ do
-    rankings <- liftIO . R.runRedis conn $ getRanks 0 30
-    current <- liftIO . R.runRedis conn $ do
-      R.select 1
-      getCurrent
-    html . renderHtml . page $ do
-      H.h2 $ do "Current Match"
-      H.toHtml current
-      H.h2 $ do "Rankings" 
-      H.toHtml rankings
-  get "/ranks" $ redirect "/history" 
-  get "/player/:player" $ \playerNameBS -> do
-    let decoded = decodeUrl playerNameBS
-    let player = Player . T.decodeUtf8 $ decoded
-    matches <- liftIO . R.runRedis conn $ getPlayerMatches decoded
-    PlayerRank _ _ rating <- liftIO . R.runRedis conn $ getRank player
-    
-    html . renderHtml . page $ do
-      H.h2 $ do
-        H.toHtml player
-        "'s Matches"
-      H.h4 $ do
-        "Elo rating of "
-        H.toHtml rating
-      toMarkup matches
-  get "/history" $ do
-    current <- liftIO . R.runRedis conn $ do
-      R.select 1
-      getCurrent
-    recent <- liftIO . R.runRedis conn $ getRecent
-
-    html . renderHtml $ page $ do
-      H.h2 $ do "Current Match"
-      H.toHtml current
-      H.h2 $ do "Recent Matches"
-      H.div $ H.toHtml recent
-
-
-page content = do
-  H.html $ do
-    H.head $ do
-      H.title "Pepper"
-      H.link ! A.rel "stylesheet" ! A.type_ "text/css" ! A.href "/style.css"
-      H.link ! A.rel "shortcut icon" ! A.type_ "image/png" ! A.href "/favicon.png"
-    H.body $ do
-      H.header $ do
-        H.span ! A.class_ "title" $ do "Pepper"
-        H.nav $ do
-          H.ul $ do
-            H.li $ H.a ! A.href "/scoreboard" $ "scoreboard"
-            H.li $ H.a ! A.href "/history" $ "history"
-            H.li $ H.a ! A.href "/about" $ "about"
-      H.section $ content
--}

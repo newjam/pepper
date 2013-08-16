@@ -43,7 +43,7 @@ routes conn = do
     file "style.css"
 
   get "/scoreboard" $ do
-    rankings <- liftIO . R.runRedis conn $ getRanks 0 30
+    rankings <- liftIO . R.runRedis conn $ getRatings 0 30
     current <- liftIO . R.runRedis conn $ do
       R.select 1
       getCurrent
@@ -55,18 +55,10 @@ routes conn = do
   get "/ranks" $ redirect "/history" 
   get "/player/:player" $ \playerNameBS -> do
     let decoded = decodeUrl playerNameBS
-    let player = Player . T.decodeUtf8 $ decoded
-    matches <- liftIO . R.runRedis conn $ getPlayerMatches decoded
-    PlayerRank _ _ rating <- liftIO . R.runRedis conn $ getRank player
-    
-    html . renderHtml . page $ do
-      H.h2 $ do
-        H.toHtml player
-        "'s Matches"
-      H.h4 $ do
-        "Elo rating of "
-        H.toHtml rating
-      H.toHtml matches
+    let name = Name . T.decodeUtf8 $ decoded
+    player <- liftIO . R.runRedis conn $ getPlayer name
+    html . renderHtml . page . H.toHtml $ player    
+
   get "/history" $ do
     current <- liftIO . R.runRedis conn $ do
       R.select 1
