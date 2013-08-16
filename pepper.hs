@@ -215,6 +215,10 @@ routes conn = do
     html. renderHtml . page $ do
       MD.markdown MD.def about
 
+  get "/favicon.png" $ do
+    header "content-type" "image/png"
+    file "favicon.png"
+
   get "/style.css" $ do
     header "content-type" "text/css"
     file "style.css"
@@ -256,11 +260,13 @@ routes conn = do
       H.h2 $ do "Recent Matches"
       H.div $ H.toHtml recent
 
+
 page content = do
   H.html $ do
     H.head $ do
       H.title "Pepper"
       H.link ! A.rel "stylesheet" ! A.type_ "text/css" ! A.href "/style.css"
+      H.link ! A.rel "shortcut icon" ! A.type_ "image/png" ! A.href "/favicon.png"
     H.body $ do
       H.header $ do
         H.span ! A.class_ "title" $ do "Pepper"

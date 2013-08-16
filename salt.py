@@ -1,7 +1,13 @@
 import json, requests, threading, redis
 from datetime import datetime
 
+import logging
+
+logging.basicConfig(format='%(levelname)s %(asctime)s %(message)s', datefmt='%d/%m/%Y %I:%M:%S %p', level=logging.INFO)
+
 r = redis.StrictRedis(host='localhost', port=6379, db=1)
+
+s = requests.Session()
 
 #
 # Improvements to naive elo rating system:
@@ -36,6 +42,9 @@ class Player:
     a.addTo(d)
     b.addTo(-d)
     return expected
+  def __eq__(a, b):
+    return a.name == b.name
+
 
 def end_game(p1, p2, p1Won):
   if p1Won:
@@ -54,13 +63,15 @@ def end_game(p1, p2, p1Won):
 
   # add match to match history of each player
   r.lpush('games['+p1.name+']', matchOutcome)
-  r.lpush('games['+p2.name+']', matchOutcome)  
+  r.lpush('games['+p2.name+']', matchOutcome)
+
+  # publish the match outcome
+  r.publish('end_game', matchOutcome)
 
 def start_game(p1, p2):
   # print info about the current game locally.
-  print p1.name, "vs.", p2.name
   odds = p1.expected(p2)
-  print round(odds * 1000.0)/10.0, "%"
+  logging.info('{} vs. {}, odds: {}'.format(p1.name, p2.name, round(odds * 1000.0)/10.0))
 
   # send information about the current match to redis.
   # should probably just put this info intothe history list, and update
@@ -69,32 +80,54 @@ def start_game(p1, p2):
   r.set("p2", p2.name)
   r.set("odds", odds)
 
-def do_stuff(lastModified, oldData):
+s.headers.update({
+   'Connection':'Keep-Alive'
+  ,'Referer':'http://www.saltybet.com/'
+  ,'User-Agent':'A bot that reads the bet data, I do NOT auto bet an will respectfully stop if requested. email: jameshildrethnewman@gmail.com'})
+
+
+def do_stuff(session, lastStatus):
   try:
     #global lastModified
-    headers = {"If-Modified-Since": lastModified}
-    response = requests.get(url="http://saltybet.com/betdata.json", headers=headers)
+    response = session.get(url="http://www.saltybet.com/betdata.json", timeout=5.0)
   
-    if response.status_code == 200:
-      print "200"
+    if response.status_code == requests.codes.ok:
+      logging.info('200')
+      
       lastModified = response.headers['last-modified']
+      session.headers.update({'If-Modified-Since': lastModified})
+      
       data = response.json()
-  
+
       status = data['status']
-  
+      #oldStatus = oldData['status']
+ 
       p1 = Player(data['p1name'])
       p2 = Player(data['p2name'])
-  
-      if status == 'open':
-        start_game(p1, p2)
-      elif status == 'locked':
-        print "betting closed"
-        pass
-      elif status == '1':
-        end_game(p1, p2, True)
-      elif status == '2':
-        end_game(p1, p2, False)
-     
+
+      changed = status != lastStatus
+
+      if changed:
+        if status == 'open':
+          logging.info('status: open')
+          if not (lastStatus == '1' or lastStatus == '2'):
+            logging.warning('missed status')
+          start_game(p1, p2)
+        elif status == 'locked':
+          logging.info('status: locked')
+          if lastStatus != 'open':
+            logging.warning('missed status')
+          pass
+        elif status == '1':
+          logging.info('status: 1')
+          end_game(p1, p2, True)
+        elif status == '2':
+          logging.info('status: 2')
+          end_game(p1, p2, False)
+        else:
+          logging.warning('unhandled status: {}'.format(status))
+        lastStatus = status
+
       #alert: ""
       #p1name: "Cloud"
       #p1total: "720891"
@@ -102,19 +135,18 @@ def do_stuff(lastModified, oldData):
       #p2total: "313909"
       #status: "1"
   
-    elif response.status_code == 304:
-      data = oldData
+    elif response.status_code == requests.codes.not_modified:
+      logging.info('304')
       pass
     else:
-      print "unhandled status code"
+      logging.warning('unhandled status code:' + response.status_code)
 
   except Exception as e:
-    print "ERROR!"
-    print e
-    data = oldData
+    logging.error(e)
   # basically, even if there is an exception, repeat in 3 seconds.
   finally:
-    threading.Timer(3.0, do_stuff, [lastModified, data]).start()
+    threading.Timer(3.0, do_stuff, [session, lastStatus]).start()
 
-do_stuff(None, {})
+
+do_stuff(s, {'status':'locked'})
 
