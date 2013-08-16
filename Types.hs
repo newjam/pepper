@@ -1,52 +1,142 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-import Types
+module Types (
+    Player(..)
+  , Rating(..)
+  , PlayerRank(..)
+  , RankBoard(..)  
+  , Odds(..)
+  , MatchOutcome(..)
+  , CurrentMatch(..)
+  , MatchList(..)
+) where
 
-import Web.Scotty
-import qualified Database.Redis as R
-import Control.Monad.IO.Class (liftIO)
+import           Data.Semigroup
+import           Control.Applicative
+import           Control.Monad
 
-import Text.Blaze as B
-import qualified Text.Blaze.Html5 as H --hiding (html, param)
+import           Data.Aeson                  as JSON
+
+import           Text.Blaze
+import qualified Text.Blaze.Html5            as H
 import qualified Text.Blaze.Html5.Attributes as A
+import           Text.Blaze.Internal (textValue)
 
-import qualified Text.Markdown as MD
+import qualified Data.Text                   as T
 
-import Text.Blaze.Html.Renderer.Text
+import           Web.Encodings (encodeUrl)
+import           Data.Attoparsec.ByteString.Char8
 
-import qualified Data.ByteString.Char8 as C
-
-import Data.Text.Encoding as T
-
-import qualified Data.Text.Lazy.IO as LT
-
-import Data.Attoparsec.ByteString.Char8
-
-import Data.Aeson as JSON hiding (json)
-import Control.Applicative
-
-import Data.Maybe (mapMaybe)
-
-import qualified Data.ByteString.Lazy as BL
-
-import Data.Semigroup
-
-import Web.Encodings (decodeUrl)
-
-instance Semigroup C.ByteString where
+instance Semigroup T.Text where
   (<>) = mappend
 
--- Todo
---   * pagination/search of lists, ie history and scoreboard
---   * modularize the code so we don't have one big file
+data Player = Player T.Text
+  deriving Show
 
-main = do
-  -- Thread safe connection pool
-  conn <- R.connect R.defaultConnectInfo
-  -- start scotty server
-  scotty 8001 (routes conn)
+newtype Rating = Rating Double
+  deriving (Show, Num, Real, Ord, Eq, RealFrac, Fractional)
 
+data PlayerRank = PlayerRank Player Integer Rating
+
+data RankBoard = RankBoard Integer [PlayerRank]
+
+newtype Odds = Odds Double
+  deriving (Show, Num, Real, Ord, Eq, RealFrac, Fractional)
+
+data MatchOutcome = MatchOutcome Player Player Bool Odds
+  deriving Show
+
+data CurrentMatch = CurrentMatch Player Player Odds
+  deriving Show
+
+data MatchList = MatchList [MatchOutcome]
+  deriving Show
+
+instance FromJSON Player where
+  parseJSON (String name) = return . Player $ name
+
+instance FromJSON Odds where
+  parseJSON (Number (D x)) = return . Odds $ x
+
+instance FromJSON MatchOutcome where
+  parseJSON (Object v) = MatchOutcome <$>
+                         v .: "p1" <*>
+                         v .: "p2" <*>
+                         v .: "p1Won" <*>
+                         v .: "odds"
+
+sigfig :: Double -> Double
+sigfig x = fromIntegral (round (x * 100.0)) / 100.0
+
+instance ToMarkup Player where
+  toMarkup (Player name) = H.a
+    ! A.class_ "player"
+    ! A.href (textValue $ "/player/"<>encodeUrl name)
+    $ H.toHtml name
+
+instance ToMarkup PlayerRank where
+  toMarkup (PlayerRank name rank score) = do
+    H.tr $ do
+      H.td $ H.toHtml $ rank
+      H.td $ H.toHtml $ name
+      H.td $ H.toHtml $ score
+
+instance ToMarkup RankBoard where
+  toMarkup (RankBoard index ranks) = do
+    H.table ! A.id "rankings" $ do
+      H.thead $ H.tr $ do
+        H.td $ H.toHtml $ ("rank" :: T.Text)
+        H.td $ H.toHtml $ ("name" :: T.Text)
+        H.td $ H.toHtml $ ("score" :: T.Text)
+      forM_ ranks toMarkup
+
+instance ToMarkup MatchList where
+  toMarkup (MatchList ms) = H.table $ do
+    H.thead $ do
+      H.tr $ do
+        H.td ! A.class_ "p1" $ do "Player 1"
+        H.td ! A.class_ "p2" $ do "Player 2"
+        H.td $ do "Odds"
+    forM_ ms H.toHtml
+
+instance ToMarkup Rating where
+  toMarkup (Rating r) = do
+    H.toHtml $ sigfig r
+
+instance ToMarkup Odds where
+  toMarkup (Odds o) = do
+    H.toHtml . sigfig . (*100.0) $ o
+    "%"
+
+instance ToMarkup MatchOutcome where
+  toMarkup (MatchOutcome p1 p2 p1Won odds) = do
+    H.tr $ do
+      let (p1Class, p2Class) = if p1Won
+          then ("winner", "loser")
+          else ("loser", "winner")
+      H.td ! A.class_ p1Class $ H.toHtml p1
+      H.td ! A.class_ p2Class $ H.toHtml p2
+      let oddsClass = if odds >= 0.6
+          then "correct"
+          else if odds <= 0.4
+            then "incorrect"
+            else "ok"
+      H.td ! A.class_ oddsClass $ H.toHtml odds
+
+instance ToMarkup CurrentMatch where
+  toMarkup (CurrentMatch p1 p2 odds) = do 
+    H.div $ do
+      H.span ! A.class_ "p1" $ H.toHtml p1
+      " vs. "
+      H.span ! A.class_ "p2" $ H.toHtml p2
+    H.div $ do
+      H.toHtml odds
+      " and "
+      H.toHtml (1.0 - odds)
+
+{-
+ 
 -- Redis
 -- =====
 
@@ -164,4 +254,4 @@ page content = do
             H.li $ H.a ! A.href "/history" $ "history"
             H.li $ H.a ! A.href "/about" $ "about"
       H.section $ content
-
+-}
