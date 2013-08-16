@@ -6,11 +6,15 @@ module Models (
   , getMatches
   , getCurrent
   , getRatings
+  , subscribe
 ) where
 
 import Types
 
 import qualified Database.Redis        as R
+import Database.Redis.Core
+import Database.Redis.PubSub hiding(subscribe)
+
 import qualified Data.ByteString.Char8 as C
 import qualified Data.Text.Encoding    as T
 import qualified Data.Aeson            as JSON
@@ -20,16 +24,45 @@ import Data.Attoparsec.ByteString.Char8
 import Control.Applicative
 import Data.Maybe (mapMaybe)
 import Data.Semigroup
+import Control.Monad
+
+import Control.Monad.Trans
+import Data.Conduit
+
 
 instance Semigroup C.ByteString where
   (<>) = mappend
+
+
+---------- PubSub EventStream
+
+-- Monad m, ToMarkup a => Conduit a m Html
+
+subscribe :: (JSON.FromJSON a, R.MonadRedis r) => C.ByteString -> Source r a
+subscribe chan = mapOutputMaybe (JSON.decode . BL.fromChunks . return) $  src chan
+
+subscribe' :: C.ByteString -> R.Redis (Either R.Reply C.ByteString)
+subscribe' channel = R.sendRequest ["SUBSCRIBE", channel]
+
+src :: R.MonadRedis r => C.ByteString -> Source r C.ByteString
+src chan = do
+  liftRedis . subscribe' $ chan
+  forever $ recv >>= yield . pubsubToBS . R.decodeMsg
+
+instance R.MonadRedis r => R.MonadRedis (ConduitM i o r) where
+  liftRedis = lift . liftRedis
+
+pubsubToBS (R.Msg (R.Message _ msg)) = msg
+
+----- Conduit ^^^^^^^^
+
 
 fuck r = r >>= either
   (\(R.Error x) -> error . show $ x)
   return
 
 fucking r = r >>= maybe
-  (error "you thought you didn't fuck up but you did.")
+  (error "key not found")
   return
 
 getRatings index count = do
@@ -38,8 +71,8 @@ getRatings index count = do
   let f rank (name, score) = RatingEntry (Name . T.decodeUtf8 $ name) rank (Rating score)
   return . RatingTable index .  zipWith f [index + 1 ..] $ r   
 
-getRecent :: R.Redis MatchList -- [MatchOutcome]
-getRecent = getMatches "history" 0 20
+getRecent :: R.Redis RecentMatches
+getRecent = RecentMatches <$> getMatches "history" 0 20
 
 getPlayerMatches :: C.ByteString -> R.Redis MatchList
 getPlayerMatches player = getMatches key 0 20 where

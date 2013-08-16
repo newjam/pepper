@@ -66,7 +66,7 @@ def end_game(p1, p2, p1Won):
   r.lpush('games['+p2.name+']', matchOutcome)
 
   # publish the match outcome
-  r.publish('end_game', matchOutcome)
+  r.publish('game_over', matchOutcome)
 
 def start_game(p1, p2):
   # print info about the current game locally.
@@ -76,9 +76,17 @@ def start_game(p1, p2):
   # send information about the current match to redis.
   # should probably just put this info intothe history list, and update
   # the outcome when we get it.
-  r.set("p1", p1.name)
-  r.set("p2", p2.name)
-  r.set("odds", odds)
+  r.set('p1', p1.name)
+  r.set('p2', p2.name)
+  r.set('odds', odds)
+
+  newMatch = json.dumps({
+      'p1': p1.name
+    , 'p2': p2.name
+    , 'odds': odds
+  })
+
+  r.publish('start_game', newMatch)
 
 s.headers.update({
    'Connection':'Keep-Alive'

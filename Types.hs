@@ -9,6 +9,7 @@ module Types (
   , RatingTable(..)  
   , RatingEntry(..)
   , Odds(..)
+  , RecentMatches(..)
   , MatchList(..)
   , MatchOutcome(..)
   , CurrentMatch(..)
@@ -77,6 +78,12 @@ instance FromJSON MatchOutcome where
                          v .: "p1Won" <*>
                          v .: "odds"
 
+instance FromJSON CurrentMatch where
+  parseJSON (Object v) = CurrentMatch 
+                      <$> v .: "p1" 
+                      <*> v .: "p2"
+                      <*> v .: "odds"
+
 sigfig :: Double -> Double
 sigfig x = fromIntegral (round (x * 100.0)) / 100.0
 
@@ -113,6 +120,11 @@ instance ToMarkup RatingTable where
         H.td $ H.toHtml $ ("score" :: T.Text)
       mapM_ H.toHtml ratings
 
+newtype RecentMatches = RecentMatches MatchList
+
+instance ToMarkup RecentMatches where
+  toMarkup (RecentMatches ms) = (H.toHtml ms) ! A.id "recentMatches" 
+
 instance ToMarkup MatchList where
   toMarkup (MatchList matches) = H.table $ do
     H.thead $ do
@@ -130,6 +142,15 @@ instance ToMarkup Odds where
   toMarkup (Odds o) = do
     H.toHtml . sigfig . (*100.0) $ o
     "%"
+
+
+{-    let (p1, p2) = if o > 0.5
+                   then (H.toHtml . sigfig $ o/(1.0-o), "1")
+                   else ("1", H.toHtml . sigfig $ o/(1.0-o))
+    H.span ! A.class_ "p1" $ p1
+    ":"
+    H.span ! A.class_ "p2" $ p2
+-}
 
 instance ToMarkup MatchOutcome where
   toMarkup (MatchOutcome p1 p2 p1Won odds) = do
