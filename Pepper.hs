@@ -99,7 +99,9 @@ routes conn = do
   get "/player/:player" $ \playerNameBS -> do
     let decoded = decodeUrl playerNameBS
     let name = Name . T.decodeUtf8 $ decoded
-    player <- liftIO . R.runRedis conn $ getPlayer name
+    player <- liftIO . R.runRedis conn $ do
+      R.select 1
+      getPlayer name
     html . renderHtml . page . H.toHtml $ player    
 
   get "/history" $ do

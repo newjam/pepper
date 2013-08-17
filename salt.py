@@ -1,13 +1,17 @@
 import json, requests, threading, redis
 from datetime import datetime
 
+
+from socketIO_client import SocketIO
+
 import logging
 
 logging.basicConfig(format='%(levelname)s %(asctime)s %(message)s', datefmt='%d/%m/%Y %I:%M:%S %p', level=logging.INFO)
 
 r = redis.StrictRedis(host='localhost', port=6379, db=1)
 
-s = requests.Session()
+socket = SocketIO('www-cdn-twitch.saltybet.com', 8000)
+
 
 #
 # Improvements to naive elo rating system:
@@ -88,73 +92,40 @@ def start_game(p1, p2):
 
   r.publish('start_game', newMatch)
 
-s.headers.update({
-   'Connection':'Keep-Alive'
-  ,'Referer':'http://www.saltybet.com/'
-  ,'User-Agent':'A bot that reads the bet data, I do NOT auto bet an will respectfully stop if requested. email: jameshildrethnewman@gmail.com'})
 
+lastStatus = ''
 
-def do_stuff(session, lastStatus):
-  try:
-    #global lastModified
-    response = session.get(url="http://www.saltybet.com/betdata.json", timeout=5.0)
-  
-    if response.status_code == requests.codes.ok:
-      logging.info('200')
-      
-      lastModified = response.headers['last-modified']
-      session.headers.update({'If-Modified-Since': lastModified})
-      
-      data = response.json()
-
-      status = data['status']
-      #oldStatus = oldData['status']
+def onMessage(msg):
+  global lastStatus
  
-      p1 = Player(data['p1name'])
-      p2 = Player(data['p2name'])
+  data = json.loads(msg)
 
-      changed = status != lastStatus
+  status = data['status']
+  changed = lastStatus != status
 
-      if changed:
-        if status == 'open':
-          logging.info('status: open')
-          if not (lastStatus == '1' or lastStatus == '2'):
-            logging.warning('missed status')
-          start_game(p1, p2)
-        elif status == 'locked':
-          logging.info('status: locked')
-          if lastStatus != 'open':
-            logging.warning('missed status')
-          pass
-        elif status == '1':
-          logging.info('status: 1')
-          end_game(p1, p2, True)
-        elif status == '2':
-          logging.info('status: 2')
-          end_game(p1, p2, False)
-        else:
-          logging.warning('unhandled status: {}'.format(status))
-        lastStatus = status
+  p1 = Player(data['p1name'])
+  p2 = Player(data['p2name'])
 
-      #alert: ""
-      #p1name: "Cloud"
-      #p1total: "720891"
-      #p2name: "Squall"
-      #p2total: "313909"
-      #status: "1"
-  
-    elif response.status_code == requests.codes.not_modified:
-      logging.info('304')
-      pass
+  if changed:
+    logging.info('status: {}'.format(status))
+    if status == 'open':
+      if not (lastStatus == '1' or lastStatus == '2'):
+        logging.warning('missed status')
+      start_game(p1, p2)
+    elif status == 'locked':
+      if lastStatus != 'open':
+        logging.warning('missed status')
+    elif status == '1':
+      end_game(p1, p2, True)
+    elif status == '2':
+      end_game(p1, p2, False)
     else:
-      logging.warning('unhandled status code:' + response.status_code)
+      logging.warning('unhandled status: {}'.format(status))
 
-  except Exception as e:
-    logging.error(e)
-  # basically, even if there is an exception, repeat in 3 seconds.
-  finally:
-    threading.Timer(3.0, do_stuff, [session, lastStatus]).start()
+  lastStatus = status
 
-
-do_stuff(s, {'status':'locked'})
+while 1:
+  socket.on('message', onMessage)
+  socket.emit('ass')
+  socket.wait(seconds=1)
 
