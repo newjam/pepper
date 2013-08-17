@@ -97,35 +97,44 @@ lastStatus = ''
 
 def onMessage(msg):
   global lastStatus
+
+
+  try:
+
+
+    response = requests.get('http://www.saltybet.com/state.json') 
  
-  data = json.loads(msg)
+    data = response.json()
+  
+    status = data['status']
+    changed = lastStatus != status
+  
+    p1 = Player(data['p1name'])
+    p2 = Player(data['p2name'])
+  
+    if changed:
+      logging.info('status: {}'.format(status))
+      if status == 'open':
+        if not (lastStatus == '1' or lastStatus == '2'):
+          logging.warning('missed status')
+        start_game(p1, p2)
+      elif status == 'locked':
+        if lastStatus != 'open':
+          logging.warning('missed status')
+      elif status == '1':
+        end_game(p1, p2, True)
+      elif status == '2':
+        end_game(p1, p2, False)
+      else:
+        logging.warning('unhandled status: {}'.format(status))
 
-  status = data['status']
-  changed = lastStatus != status
+    lastStatus = status
+  except Exception as e:
+    print e
 
-  p1 = Player(data['p1name'])
-  p2 = Player(data['p2name'])
-
-  if changed:
-    logging.info('status: {}'.format(status))
-    if status == 'open':
-      if not (lastStatus == '1' or lastStatus == '2'):
-        logging.warning('missed status')
-      start_game(p1, p2)
-    elif status == 'locked':
-      if lastStatus != 'open':
-        logging.warning('missed status')
-    elif status == '1':
-      end_game(p1, p2, True)
-    elif status == '2':
-      end_game(p1, p2, False)
-    else:
-      logging.warning('unhandled status: {}'.format(status))
-
-  lastStatus = status
+socket.on('message', onMessage)
 
 while 1:
-  socket.on('message', onMessage)
-  socket.emit('ass')
+  #socket.emit('message')
   socket.wait(seconds=1)
 

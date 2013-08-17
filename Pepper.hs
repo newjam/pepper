@@ -75,15 +75,15 @@ routes conn = do
 
   get "/pepper.js" $ do
     header "content-type" "text/javascript"
-    file "pepper.js"
+    file "static/pepper.js"
 
   get "/favicon.png" $ do
     header "content-type" "image/png"
-    file "favicon.png"
+    file "static/favicon.png"
 
   get "/style.css" $ do
     header "content-type" "text/css"
-    file "style.css"
+    file "static/style.css"
 
   get "/scoreboard" $ do
     rankings <- liftIO . R.runRedis conn $ getRatings 0 30
