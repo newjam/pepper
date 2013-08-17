@@ -6,6 +6,9 @@ import Models
 import           Web.Scotty
 import qualified Database.Redis as R
 
+import qualified Network.Wai.Middleware.Static as Static
+import qualified Network.Wai.Middleware.RequestLogger as RequestLogger
+
 import           Control.Monad.IO.Class (liftIO)
 import           Web.Encodings (decodeUrl)
 
@@ -63,6 +66,13 @@ main = do
 
 routes conn = do
 
+  -- automatically serve files from the static directory.
+  -- eg GET /style.css serves static/style.css
+  middleware . Static.staticPolicy $ Static.addBase "static"
+
+  -- log information about requests to stdout
+  middleware $ RequestLogger.logStdout
+
   get "/stream" $ do
     header "Content-Type" "text/event-stream"
     bloop <- liftIO . runResourceT $ foo conn
@@ -72,18 +82,6 @@ routes conn = do
     about <- liftIO $ LT.readFile "about"
     html. renderHtml . page $ do
       MD.markdown MD.def about
-
-  get "/pepper.js" $ do
-    header "content-type" "text/javascript"
-    file "static/pepper.js"
-
-  get "/favicon.png" $ do
-    header "content-type" "image/png"
-    file "static/favicon.png"
-
-  get "/style.css" $ do
-    header "content-type" "text/css"
-    file "static/style.css"
 
   get "/scoreboard" $ do
     rankings <- liftIO . R.runRedis conn $ getRatings 0 30
