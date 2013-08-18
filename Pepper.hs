@@ -127,15 +127,13 @@ css url = H.link ! A.rel "stylesheet" ! A.type_ "text/css" ! A.href url
 page content = do
   H.html $ do
     H.head $ do
-      H.title "epper"
+      H.title "iPepper"
       css "/style.css"
       css "//netdna.bootstrapcdn.com/twitter-bootstrap/2.3.2/css/bootstrap-combined.min.css"
 --      script "/pepper.js"
       H.link ! A.rel "shortcut icon" ! A.type_ "image/png" ! A.href "/favicon.png"
     H.body $ do
       H.header $ do
-        H.div ! A.class_ "title" $ do
-          "Pepper"
         H.div ! A.class_ "navbar navbar-inverse navbar-fixed-top"  $ do
           H.div ! A.class_ "navbar-inner" $ do
             H.div ! A.class_ "container" $ do
@@ -151,6 +149,7 @@ page content = do
                   ! A.placeholder "search for character"
       H.div ! A.class_ "container" $ content 
       script "http://code.jquery.com/jquery-1.8.3.min.js"
+      
       script "//netdna.bootstrapcdn.com/twitter-bootstrap/2.3.2/js/bootstrap.min.js"
       script "/ajax_search.js"
 
