@@ -17,7 +17,6 @@ module Types (
 
 import           Data.Semigroup
 import           Control.Applicative
-import           Control.Monad
 
 import           Data.Aeson                  as JSON
 
@@ -35,7 +34,7 @@ instance Semigroup T.Text where
   (<>) = mappend
 
 data Name = Name T.Text
-  deriving Show
+  deriving (Show)
 
 newtype Rating = Rating Double
   deriving (Show, Num, Real, Ord, Eq, RealFrac, Fractional)
@@ -67,6 +66,9 @@ data MatchList = MatchList [MatchOutcome]
 
 instance FromJSON Name where
   parseJSON (String name) = return . Name $ name
+
+instance ToJSON Name where
+  toJSON (Name n) = toJSON n
 
 instance FromJSON Odds where
   parseJSON (Number (D x)) = return . Odds $ x
@@ -113,11 +115,11 @@ instance ToMarkup RatingEntry where
 
 instance ToMarkup RatingTable where
   toMarkup (RatingTable _ ratings) = do
-    H.table ! A.id "rankings" $ do
+    H.table ! A.class_ "table table-striped"! A.id "rankings" $ do
       H.thead $ H.tr $ do
-        H.td $ H.toHtml $ ("rank" :: T.Text)
-        H.td $ H.toHtml $ ("name" :: T.Text)
-        H.td $ H.toHtml $ ("score" :: T.Text)
+        H.th $ H.toHtml $ ("rank" :: T.Text)
+        H.th $ H.toHtml $ ("name" :: T.Text)
+        H.th $ H.toHtml $ ("score" :: T.Text)
       mapM_ H.toHtml ratings
 
 newtype RecentMatches = RecentMatches MatchList
@@ -126,12 +128,12 @@ instance ToMarkup RecentMatches where
   toMarkup (RecentMatches ms) = (H.toHtml ms) ! A.id "recentMatches" 
 
 instance ToMarkup MatchList where
-  toMarkup (MatchList matches) = H.table $ do
+  toMarkup (MatchList matches) = H.table ! A.class_ "table table-striped" $ do
     H.thead $ do
       H.tr $ do
-        H.td ! A.class_ "p1" $ do "Player 1"
-        H.td ! A.class_ "p2" $ do "Player 2"
-        H.td $ do "Odds"
+        H.th ! A.class_ "p1" $ do "Player 1"
+        H.th ! A.class_ "p2" $ do "Player 2"
+        H.th $ do "Odds"
     mapM_ H.toHtml matches
 
 instance ToMarkup Rating where

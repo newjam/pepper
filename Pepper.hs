@@ -2,6 +2,7 @@
 
 import Types
 import Models
+import Index
 
 import           Web.Scotty
 import qualified Database.Redis as R
@@ -19,7 +20,6 @@ import           Text.Blaze.Html.Renderer.Text (renderHtml)
 
 import           Text.Blaze.Html.Renderer.Utf8 (renderHtmlBuilder)
 
-
 import qualified Text.Markdown               as MD
 import qualified Data.Text.Lazy.IO           as LT
 import qualified Data.Text.Encoding          as T
@@ -27,13 +27,11 @@ import qualified Data.Text.Encoding          as T
 import Data.Conduit.TMChan
 
 import Data.Conduit
-import Data.Conduit.List as CL
+import qualified Data.Conduit.List as CL
 
 import Network.Wai.EventSource.EventStream
---import Network.Wai.EventSource
 
 import Blaze.ByteString.Builder
-import Blaze.ByteString.Builder.ByteString (fromByteString)
 import qualified Data.ByteString as B
 
 toServerEvent :: B.ByteString -> (Monad m, H.ToMarkup a) => Conduit a m ServerEvent
@@ -61,10 +59,14 @@ main = do
   -- Thread safe connection pool
   conn <- R.connect R.defaultConnectInfo
 
-  -- start scotty server
-  scotty 8001 (routes conn)
+  -- Create index of player names for search
+  names <- R.runRedis conn $ getNames
+  let nameIndex = index names
 
-routes conn = do
+  -- start scotty server
+  scotty 8001 (routes conn nameIndex)
+
+routes conn nameIndex = do
 
   -- automatically serve files from the static directory.
   -- eg GET /style.css serves static/style.css
@@ -73,11 +75,15 @@ routes conn = do
   -- log information about requests to stdout
   middleware $ RequestLogger.logStdout
 
-  get "/stream" $ do
+{-  get "/stream" $ do
     header "Content-Type" "text/event-stream"
     bloop <- liftIO . runResourceT $ foo conn
     source bloop
- 
+ -}
+  get "/search" $ do
+    query <- param "query"
+    json . take 10 $ search query nameIndex 
+
   get "/about" $ do
     about <- liftIO $ LT.readFile "about"
     html. renderHtml . page $ do
@@ -116,23 +122,36 @@ routes conn = do
 
 
 script url = H.script ! A.type_ "text/javascript" ! A.src url $ do ""
-
+css url = H.link ! A.rel "stylesheet" ! A.type_ "text/css" ! A.href url
 
 page content = do
   H.html $ do
     H.head $ do
-      H.title "Pepper"
-      script "/pepper.js"
-      script "//cdnjs.cloudflare.com/ajax/libs/zepto/1.0rc1/zepto.min.js"
-      H.link ! A.rel "stylesheet" ! A.type_ "text/css" ! A.href "/style.css"
+      H.title "epper"
+      css "/style.css"
+      css "//netdna.bootstrapcdn.com/twitter-bootstrap/2.3.2/css/bootstrap-combined.min.css"
+--      script "/pepper.js"
       H.link ! A.rel "shortcut icon" ! A.type_ "image/png" ! A.href "/favicon.png"
     H.body $ do
       H.header $ do
-        H.span ! A.class_ "title" $ do "Pepper"
-        H.nav $ do
-          H.ul $ do
-            H.li $ H.a ! A.href "/scoreboard" $ "scoreboard"
-            H.li $ H.a ! A.href "/history" $ "history"
-            H.li $ H.a ! A.href "/about" $ "about"
-      H.section $ content
+        H.div ! A.class_ "title" $ do
+          "Pepper"
+        H.div ! A.class_ "navbar navbar-inverse navbar-fixed-top"  $ do
+          H.div ! A.class_ "navbar-inner" $ do
+            H.div ! A.class_ "container" $ do
+              H.span ! A.class_ "brand" $ do "Pepper"
+              H.ul ! A.class_ "nav" $ do
+                H.li $ H.a ! A.href "/scoreboard" $ "scoreboard"
+                H.li $ H.a ! A.href "/history" $ "history"
+                H.li $ H.a ! A.href "/about" $ "about"
+              H.form ! A.class_ "navbar-search pull-right" $ do
+                H.input 
+                  ! H.dataAttribute "provide" "typeahead"
+                  ! A.class_ "typeahead search-query"
+                  ! A.placeholder "search for character"
+      H.div ! A.class_ "container" $ content 
+      script "http://code.jquery.com/jquery-1.8.3.min.js"
+      script "//netdna.bootstrapcdn.com/twitter-bootstrap/2.3.2/js/bootstrap.min.js"
+      script "/ajax_search.js"
+
 

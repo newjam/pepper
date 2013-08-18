@@ -7,13 +7,14 @@ module Models (
   , getCurrent
   , getRatings
   , subscribe
+  , getNames
 ) where
 
 import Types
 
 import qualified Database.Redis        as R
 import Database.Redis.Core
-import Database.Redis.PubSub hiding(subscribe)
+--import Database.Redis.PubSub hiding(subscribe)
 
 import qualified Data.ByteString.Char8 as C
 import qualified Data.Text.Encoding    as T
@@ -64,6 +65,12 @@ fuck r = r >>= either
 fucking r = r >>= maybe
   (error "key not found")
   return
+
+getNames :: R.Redis [Name]
+getNames = do
+  R.select 1
+  names <- fuck $ R.zrange "players" 0 (-1)
+  return . map (Name . T.decodeUtf8) $ names
 
 getRatings index count = do
   R.select 1
