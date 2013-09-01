@@ -82,10 +82,10 @@ routes conn nameIndex = do
  -}
   get "/search" $ do
     query <- param "query"
-    json . take 10 $ search query nameIndex 
+    json . take 20 $ search query nameIndex 
 
   get "/about" $ do
-    about <- liftIO $ LT.readFile "about"
+    about <- liftIO $ LT.readFile "README.md"
     html. renderHtml . page $ do
       MD.markdown MD.def about
 
@@ -127,7 +127,7 @@ css url = H.link ! A.rel "stylesheet" ! A.type_ "text/css" ! A.href url
 page content = do
   H.html $ do
     H.head $ do
-      H.title "iPepper"
+      H.title "Pepper"
       css "/style.css"
       css "//netdna.bootstrapcdn.com/twitter-bootstrap/2.3.2/css/bootstrap-combined.min.css"
 --      script "/pepper.js"

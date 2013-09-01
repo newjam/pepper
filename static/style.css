@@ -26,6 +26,7 @@ body {
   margin: 0;
   font-family:Arial, Helvetica, sans-serif;
   color: #000000;
+  padding-top: 40px;
 }
 table {
 border-spacing: 0px;
@@ -66,7 +67,7 @@ section {
   float: left;
   padding-right: 20px;
 }
-
+/*
 header {
   color: #CCCCCC;
   padding: 10 10 10 10;
@@ -78,7 +79,8 @@ header {
   background-color: #252525;
   overflow: hidden;
 }
-
+*/
+/*
 ul {
   list-style-type:none;
   overflow: hidden;
@@ -90,4 +92,4 @@ li {
   float: left;
   margin-left: 10px;
   margin-right: 10px;
-}
+}*/

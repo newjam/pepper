@@ -22,25 +22,49 @@ import Data.Char (toLower)
 
 import GHC.Exts (sortWith)
 
-search word (NameIndex i) = process . findAll (V.fromList word) $ i
-  where
-    findAll = Adict.findAll Adict.costDefault 2.0
+--testDawg = S.freeze . foldr addWord D.empty $ ["ryui", "ryu"]
 
-process :: [(String, String, Double)] -> [Name]
-process = map stringToName . L.nub . map (\(_, x, _) -> x) . sortWith (\(_, _, x) -> x) 
+
+--testQuery = V.fromList  "ryu"
+
+-- ngrams are being overwritten...
+-- we need a list as the value in the dawg, with all the names
+-- it matches up to. use fromListWith
+
+--testquery = findAll 
+
+search query (NameIndex i) = process . findAll query' $ i
+  where
+    query' = V.fromList . map toLower $ query
+
+findAll = Adict.findAll Adict.costDefault 2.0
+
+process :: [(String, [String], Double)] -> [Name]
+process = toNames . removeDuplicates . concat . extractNames . sort
+  where
+    toNames = map stringToName
+    removeDuplicates = L.nub
+    extractNames = map (\(_, name, _) -> name)
+    sort = sortWith (\(_, _, distance) -> distance) 
 
 nameToString (Name n) = T.unpack n 
 stringToName = Name . T.pack 
 
-newtype NameIndex = NameIndex (S.DAWG Char () String)
+newtype NameIndex = NameIndex (S.DAWG Char () [String])
 
 index :: [Name] -> NameIndex 
-index = NameIndex . S.freeze . foldr addWord D.empty . map nameToString
+index = NameIndex . S.fromListWith (++) . concatMap (explodeWord . nameToString)
 
-type Auto a = a -> a
+--NameIndex . S.freeze . foldr addWord D.empty . map nameToString
 
-addWord :: String -> Auto (D.DAWG Char String)
-addWord word dawg = foldr (\ngram -> D.insert ngram word) dawg . ngrams $ word
+--type Auto a = a -> a
+
+--addWord :: String -> Auto (D.DAWG Char String)
+--addWord word dawg = foldr (\ngram -> D.insert ngram word) dawg . ngrams $ word
+
+
+
+explodeWord word = map (\ngram-> (ngram, [word])) . ngrams $ word
 
 ngrams = filter ((>=2) . length) . concatMap L.inits . L.tails . map toLower
 
